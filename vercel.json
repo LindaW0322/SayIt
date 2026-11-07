@@ -7,6 +7,10 @@
   },
   "rewrites": [
     {
+      "source": "/db-test",
+      "destination": "/api/db-test"
+    },
+    {
       "source": "/tcp-test",
       "destination": "/api/tcp-test"
     },
