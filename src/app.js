@@ -82,7 +82,7 @@ function createApp() {
     }));
   });
 
-  cleanupSessions().catch(error => console.error('Session cleanup failed:', error));
+  // Temporarily disabled startup session cleanup for Vercel diagnosis.
   return app;
 }
 
