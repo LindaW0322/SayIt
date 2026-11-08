@@ -7,6 +7,10 @@
   },
   "rewrites": [
     {
+      "source": "/pool-test",
+      "destination": "/api/pool-test"
+    },
+    {
       "source": "/db-test",
       "destination": "/api/db-test"
     },
