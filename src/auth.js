@@ -5,7 +5,7 @@ const { hashPassword, verifyPassword } = require('./passwords');
 const { normalizeUsernameKey, safeNextPath } = require('./utils');
 
 const SESSION_COOKIE = 'pt_session';
-const SESSION_DAYS = 7;
+const SESSION_DAYS = 30;
 
 const DUMMY_HASH = hashPassword(crypto.randomBytes(24).toString('hex'));
 

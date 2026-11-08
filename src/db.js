@@ -34,6 +34,10 @@ function init() {
     connectionTimeoutMillis: 10_000,
     application_name: 'pes-to'
   });
+  if (IS_VERCEL) {
+    readyPromise = Promise.resolve();
+    return readyPromise;
+  }
   readyPromise = (async () => {
     const client = await pool.connect();
     try {

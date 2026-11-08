@@ -7,18 +7,6 @@
   },
   "rewrites": [
     {
-      "source": "/pool-test",
-      "destination": "/api/pool-test"
-    },
-    {
-      "source": "/db-test",
-      "destination": "/api/db-test"
-    },
-    {
-      "source": "/tcp-test",
-      "destination": "/api/tcp-test"
-    },
-    {
       "source": "/(.*)",
       "destination": "/api"
     }
@@ -85,6 +73,12 @@
           "value": "public, max-age=3600"
         }
       ]
+    }
+  ],
+  "crons": [
+    {
+      "path": "/api/cleanup",
+      "schedule": "0 3 * * 0"
     }
   ]
 }
