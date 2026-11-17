@@ -181,6 +181,97 @@ a {
   margin: 12px 0 0;
 }
 
+.suggestion-actions {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin: 12px 0 0;
+}
+
+.suggestion-actions .like-form {
+  margin: 0;
+}
+
+.suggestion-card[data-can-delete] {
+  cursor: pointer;
+}
+
+.suggestion-card[data-can-delete]:focus-visible {
+  outline: 3px solid rgba(31, 122, 224, 0.35);
+  outline-offset: 3px;
+}
+
+.suggestion-delete-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin: 12px 0 0;
+}
+
+.suggestion-delete-actions[hidden] {
+  display: none;
+}
+
+.confirm-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 18px;
+  background: rgba(17, 56, 107, 0.45);
+}
+
+.confirm-overlay[hidden] {
+  display: none;
+}
+
+.confirm-dialog-card {
+  width: 100%;
+  max-width: 420px;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 22px;
+  box-shadow: var(--shadow-hover);
+}
+
+.confirm-dialog-title {
+  margin: 0 0 10px;
+  font-size: 1.25rem;
+}
+
+.confirm-dialog-message {
+  margin: 0 0 18px;
+  color: var(--ink-soft);
+}
+
+.confirm-dialog-actions {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.confirm-dialog-actions .btn {
+  flex: 1 1 auto;
+  min-width: 120px;
+}
+
+.btn-sm {
+  padding: 8px 14px;
+  font-size: 0.9rem;
+  gap: 6px;
+}
+
+.btn-sm .icon {
+  width: 18px;
+  height: 18px;
+}
+
 .like-button {
   display: inline-flex;
   align-items: center;
@@ -1025,6 +1116,26 @@ a {
 
 .suggestion-desc {
   margin: 0;
+}
+
+.suggestion-card[data-detail-url] {
+  touch-action: manipulation;
+}
+
+.suggestion-detail-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 16px 0 0;
+  color: var(--ink-soft);
+  font-size: 0.95rem;
+}
+
+.suggestion-detail-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  align-items: flex-start;
 }
 
 .admin-event-card,

@@ -64,6 +64,7 @@ function migrate() {
       title TEXT NOT NULL,
       description TEXT NOT NULL,
       is_public INTEGER NOT NULL DEFAULT 0,
+      user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
       created_at TEXT NOT NULL
     );
 
@@ -154,6 +155,9 @@ function migrate() {
     const suggestionColumns = tableColumns('suggestions');
     if (!suggestionColumns.has('is_public')) {
       db.exec('ALTER TABLE suggestions ADD COLUMN is_public INTEGER NOT NULL DEFAULT 0');
+    }
+    if (!suggestionColumns.has('user_id')) {
+      db.exec('ALTER TABLE suggestions ADD COLUMN user_id INTEGER REFERENCES users(id) ON DELETE CASCADE');
     }
 
     const updateCategory = db.prepare('UPDATE suggestions SET category = ? WHERE category = ?');

@@ -24,8 +24,11 @@ CREATE TABLE IF NOT EXISTS suggestions (
   title text NOT NULL,
   description text NOT NULL,
   is_public integer NOT NULL DEFAULT 0,
+  user_id integer REFERENCES users(id) ON DELETE CASCADE,
   created_at text NOT NULL
 );
+
+ALTER TABLE suggestions ADD COLUMN IF NOT EXISTS user_id integer REFERENCES users(id) ON DELETE CASCADE;
 
 CREATE TABLE IF NOT EXISTS suggestion_likes (
   suggestion_id integer NOT NULL REFERENCES suggestions(id) ON DELETE CASCADE,

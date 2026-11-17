@@ -64,9 +64,9 @@ router.post('/protasi', async (req, res) => {
   }
 
   await db.prepare(`
-    INSERT INTO suggestions (category, title, description, is_public, created_at)
-    VALUES (?, ?, ?, 1, ?)
-  `).run(category, title, description, new Date().toISOString());
+    INSERT INTO suggestions (category, title, description, is_public, user_id, created_at)
+    VALUES (?, ?, ?, 1, ?, ?)
+  `).run(category, title, description, req.user.id, new Date().toISOString());
   res.send(views.suggestSuccess({ user: req.user }));
 });
 
@@ -81,11 +81,28 @@ router.get('/protaseis', async (req, res) => {
     FROM suggestions s
     LEFT JOIN suggestion_likes l ON l.suggestion_id = s.id
     WHERE s.is_public = 1
-    GROUP BY s.id, s.category, s.title, s.description, s.is_public, s.created_at
+    GROUP BY s.id, s.category, s.title, s.description, s.is_public, s.user_id, s.created_at
     ORDER BY s.created_at DESC, s.id DESC
     LIMIT ? OFFSET ?
   `).all(userId, pager.pageSize, pager.offset);
-  res.send(views.suggestionBoardPage({ user: req.user, suggestions, pager }));
+  res.send(views.suggestionBoardPage({ user: req.user, suggestions, pager, flash: req.query.m }));
+});
+
+router.get('/protaseis/:id', async (req, res) => {
+  const id = Number(req.params.id);
+  const suggestion = await db.prepare(`
+    SELECT s.*,
+      COUNT(l.user_id) AS like_count
+    FROM suggestions s
+    LEFT JOIN suggestion_likes l ON l.suggestion_id = s.id
+    WHERE s.id = ? AND s.is_public = 1
+    GROUP BY s.id, s.category, s.title, s.description, s.is_public, s.user_id, s.created_at
+  `).get(id);
+  if (!suggestion) {
+    return res.status(404).send(views.notFoundPage({ user: req.user }));
+  }
+  const canDelete = !!req.user && (req.user.is_owner || Number(suggestion.user_id) === Number(req.user.id));
+  res.send(views.suggestionDetailPage({ user: req.user, suggestion, canDelete }));
 });
 
 router.post('/protaseis/:id/mou-aresei', async (req, res) => {
@@ -104,6 +121,24 @@ router.post('/protaseis/:id/mou-aresei', async (req, res) => {
     `).run(id, req.user.id, new Date().toISOString());
   }
   res.redirect('/protaseis#protasi-' + id);
+});
+
+router.post('/protaseis/:id/diagrafi', async (req, res) => {
+  const id = Number(req.params.id);
+  const wantsJson = /\bapplication\/json\b/.test(String(req.headers.accept || ''));
+  const suggestion = await db.prepare('SELECT id, user_id FROM suggestions WHERE id = ?').get(id);
+  if (!suggestion) {
+    if (wantsJson) return res.status(404).json({ error: 'Η πρόταση δεν βρέθηκε.' });
+    return res.status(404).send(views.notFoundPage({ user: req.user }));
+  }
+  if (!req.user.is_owner && Number(suggestion.user_id) !== Number(req.user.id)) {
+    if (wantsJson) return res.status(403).json({ error: 'Δεν έχετε δικαίωμα να διαγράψετε αυτή την πρόταση.' });
+    return res.status(403).send(views.forbiddenPage({ user: req.user }));
+  }
+  await db.prepare('DELETE FROM suggestion_likes WHERE suggestion_id = ?').run(id);
+  await db.prepare('DELETE FROM suggestions WHERE id = ?').run(id);
+  if (wantsJson) return res.json({ ok: true, id });
+  res.redirect('/protaseis?m=diagrafike');
 });
 
 router.get('/ekdiloseis', async (req, res) => {

@@ -341,6 +341,192 @@ async function migrationScenario(tempRoot) {
   }
 }
 
+function cardHtml(html, id) {
+  const match = new RegExp('<article[^>]*id="protasi-' + id + '"[^>]*>[\\s\\S]*?</article>').exec(String(html));
+  return match ? match[0] : '';
+}
+
+async function deleteSuggestionScenario(tempRoot) {
+  console.log('\n15. Κλικ σε πρόταση και διαγραφή με σωστά δικαιώματα');
+  const dataDir = path.join(tempRoot, 'delete-data');
+  const uploadDir = path.join(tempRoot, 'delete-uploads');
+  fs.mkdirSync(dataDir, { recursive: true });
+  fs.mkdirSync(uploadDir, { recursive: true });
+
+  const port = await freePort();
+  const base = 'http://127.0.0.1:' + port;
+  const server = startServer(port, dataDir, uploadDir);
+  await waitForServer(base, server.child);
+
+  const writeDb = new DatabaseSync(path.join(dataDir, 'pes-to.db'));
+  writeDb.exec('PRAGMA busy_timeout = 5000');
+
+  const jsonPost = (client, pathname) => client.request(pathname, {
+    form: {},
+    headers: { Accept: 'application/json' }
+  });
+
+  try {
+    const studentA = new Client(base);
+    const registerA = await studentA.request('/eggrafi', {
+      form: { username: 'Διαγραφή_Α', password: USER1_PASSWORD, confirm: USER1_PASSWORD }
+    });
+    assertStatus(registerA, 302, 'Ο πρώτος μαθητής εγγράφεται στο σενάριο διαγραφής');
+    const studentB = new Client(base);
+    const registerB = await studentB.request('/eggrafi', {
+      form: { username: 'Διαγραφή_Β', password: USER2_PASSWORD, confirm: USER2_PASSWORD }
+    });
+    assertStatus(registerB, 302, 'Ο δεύτερος μαθητής εγγράφεται στο σενάριο διαγραφής');
+    const scenarioUsers = query(dataDir, 'SELECT id, username FROM users ORDER BY id');
+    ok(scenarioUsers.length === 2, 'Το σενάριο διαγραφής ξεκινά με δύο μαθητές');
+    const aId = Number(scenarioUsers.find(u => String(u.username) === 'Διαγραφή_Α').id);
+    const bUserId = Number(scenarioUsers.find(u => String(u.username) === 'Διαγραφή_Β').id);
+
+    const now = new Date().toISOString();
+    writeDb.prepare(`
+      INSERT INTO suggestions (category, title, description, is_public, user_id, created_at)
+      VALUES ('Γενική', 'Παλιά πρόταση χωρίς συντάκτη', 'Πρόταση από παλιά δεδομένα χωρίς λογαριασμό.', 1, NULL, ?)
+    `).run(now);
+    writeDb.prepare(`
+      INSERT INTO events (title, event_date, event_time, location, description, image_path, created_at)
+      VALUES ('Ανεξάρτητη εκδήλωση', '2099-02-10', '12:00', 'Αίθουσα', 'Περιγραφή ανεξάρτητης εκδήλωσης.', NULL, ?)
+    `).run(now);
+    writeDb.prepare("INSERT INTO polls (question, status, created_at) VALUES ('Ανεξάρτητη ψηφοφορία', 'closed', ?)").run(now);
+    writeDb.prepare("INSERT INTO choices (poll_id, text, position) VALUES (1, 'Επιλογή 1', 0)").run();
+    writeDb.prepare("INSERT INTO choices (poll_id, text, position) VALUES (1, 'Επιλογή 2', 1)").run();
+    writeDb.prepare('INSERT INTO votes (poll_id, choice_id, user_id, code_id, created_at) VALUES (1, 1, ?, NULL, ?)').run(aId, now);
+
+    const subA1 = await studentA.request('/protasi', {
+      form: { category: 'Αθλητική', title: 'Η πρόταση δοκιμής διαγραφής', description: 'Η πρώτη πρόταση του μαθητή Α για διαγραφή.' }
+    });
+    assertStatus(subA1, 200, 'Ο μαθητής Α υποβάλλει την πρώτη του πρόταση');
+    const subB = await studentB.request('/protasi', {
+      form: { category: 'Πολιτισμική', title: 'Η πρόταση του μαθητή Β', description: 'Η πρόταση του μαθητή Β στο σενάριο διαγραφής.' }
+    });
+    assertStatus(subB, 200, 'Ο μαθητής Β υποβάλλει την πρότασή του');
+    const subA2 = await studentA.request('/protasi', {
+      form: { category: 'Γενική', title: 'Η δεύτερη πρόταση του Α', description: 'Η δεύτερη πρόταση του μαθητή Α.' }
+    });
+    assertStatus(subA2, 200, 'Ο μαθητής Α υποβάλλει τη δεύτερη πρότασή του');
+    const suggestionRows = query(dataDir, 'SELECT id, user_id, title FROM suggestions ORDER BY id');
+    ok(suggestionRows.length === 4, 'Το σενάριο έχει τέσσερις προτάσεις συνολικά');
+    const legacyId = Number(suggestionRows.find(r => String(r.title) === 'Παλιά πρόταση χωρίς συντάκτη').id);
+    const a1Id = Number(suggestionRows.find(r => String(r.title) === 'Η πρόταση δοκιμής διαγραφής').id);
+    const a2Id = Number(suggestionRows.find(r => String(r.title) === 'Η δεύτερη πρόταση του Α').id);
+    const bSuggestionId = Number(suggestionRows.find(r => String(r.title) === 'Η πρόταση του μαθητή Β').id);
+    ok(suggestionRows.find(r => r.id === a1Id).user_id === aId, 'Η πρόταση αποθηκεύει τον λογαριασμό του συντάκτη');
+    ok(suggestionRows.find(r => r.id === bSuggestionId).user_id === bUserId, 'Κάθε πρόταση καταγράφει τον σωστό συντάκτη');
+
+    await studentB.request('/protaseis/' + a1Id + '/mou-aresei', { form: {} });
+    await studentB.request('/protaseis/' + a2Id + '/mou-aresei', { form: {} });
+    await studentA.request('/protaseis/' + bSuggestionId + '/mou-aresei', { form: {} });
+    ok(query(dataDir, 'SELECT suggestion_id FROM suggestion_likes').length === 3, 'Οι προτιμήσεις του σεναρίου καταγράφηκαν');
+
+    const boardA = await studentA.request('/protaseis');
+    includes(cardHtml(boardA.text, a1Id), 'data-can-delete="1"', 'Η κάρτα της δικής του πρότασης είναι κλικαμπλ προς διαγραφή');
+    includes(cardHtml(boardA.text, a1Id), 'Διαγραφή πρότασης', 'Η επιλογή «Διαγραφή πρότασης» εμφανίζεται στη δική του πρόταση');
+    includes(cardHtml(boardA.text, a2Id), 'data-can-delete="1"', 'Η δεύτερη πρόταση του συντάκτη είναι επίσης κλικαμπλ προς διαγραφή');
+    notIncludes(cardHtml(boardA.text, bSuggestionId), 'data-can-delete', 'Η πρόταση άλλου μαθητή δεν είναι κλικαμπλ προς διαγραφή');
+    notIncludes(cardHtml(boardA.text, bSuggestionId), 'Διαγραφή πρότασης', 'Δεν εμφανίζεται επιλογή διαγραφής σε πρόταση άλλου μαθητή');
+    notIncludes(cardHtml(boardA.text, legacyId), 'data-can-delete', 'Η πρόταση χωρίς συντάκτη δεν είναι κλικαμπλ για απλό μαθητή');
+    includes(boardA.text, 'Είσαι σίγουρος/η ότι θέλεις να διαγράψεις αυτή την πρόταση;', 'Υπάρχει η ελληνική επιβεβαίωση διαγραφής');
+    includes(boardA.text, '>Ακύρωση</button>', 'Το παράθυρο επιβεβαίωσης έχει κουμπί «Ακύρωση»');
+    includes(boardA.text, 'data-suggestion-confirm-delete', 'Το παράθυρο επιβεβαίωσης έχει κουμπί «Διαγραφή»');
+    const boardB = await studentB.request('/protaseis');
+    includes(cardHtml(boardB.text, bSuggestionId), 'data-can-delete="1"', 'Ο δεύτερος μαθητής βλέπει τη δική του πρόταση κλικαμπλ προς διαγραφή');
+    includes(cardHtml(boardB.text, bSuggestionId), 'Διαγραφή πρότασης', 'Ο δεύτερος μαθητής βλέπει την επιλογή διαγραφής στη δική του πρόταση');
+    notIncludes(cardHtml(boardB.text, a1Id), 'data-can-delete', 'Ο δεύτερος μαθητής δεν βλέπει διαγραφή σε πρόταση άλλου');
+
+    const guestDelete = await new Client(base).request('/protaseis/' + a1Id + '/diagrafi', {
+      form: {},
+      headers: { Accept: 'application/json' }
+    });
+    assertStatus(guestDelete, 302, 'Ο ανώνυμος χρήστης δεν μπορεί να διαγράψει πρόταση');
+    ok(String(guestDelete.location || '').startsWith('/?next='), 'Η ανώνυμη διαγραφή οδηγεί στη σύνδεση');
+    ok(query(dataDir, 'SELECT id FROM suggestions WHERE id = ?', [a1Id]).length === 1, 'Η πρόταση παραμένει μετά την ανώνυμη απόπειρα');
+
+    const bTries = await jsonPost(studentB, '/protaseis/' + a1Id + '/diagrafi');
+    assertStatus(bTries, 403, 'Ο μαθητής δεν μπορεί να διαγράψει πρόταση άλλου μαθητή');
+    ok(JSON.parse(bTries.text).error, 'Η άρνηση επιστρέφει σαφές μήνυμα');
+    ok(query(dataDir, 'SELECT id FROM suggestions WHERE id = ?', [a1Id]).length === 1, 'Η πρόταση παραμένει μετά την απόπειρα άλλου μαθητή');
+
+    const aDeletes = await jsonPost(studentA, '/protaseis/' + a1Id + '/diagrafi');
+    assertStatus(aDeletes, 200, 'Ο μαθητής μπορεί να διαγράψει τη δική του πρόταση');
+    ok(JSON.parse(aDeletes.text).ok === true, 'Η επιτυχής διαγραφή επιστρέφει επιβεβαίωση');
+    ok(query(dataDir, 'SELECT id FROM suggestions WHERE id = ?', [a1Id]).length === 0, 'Η πρόταση αφαιρέθηκε από τη βάση');
+    ok(query(dataDir, 'SELECT suggestion_id FROM suggestion_likes WHERE suggestion_id = ?', [a1Id]).length === 0, 'Τα «μου αρέσει» της διαγραμμένης πρότασης αφαιρέθηκαν');
+    ok(query(dataDir, 'SELECT suggestion_id FROM suggestion_likes WHERE suggestion_id = ?', [a2Id]).length === 1, 'Τα «μου αρέσει» άλλων προτάσεων δεν επηρεάστηκαν');
+    const boardAfter = await studentA.request('/protaseis');
+    assertStatus(boardAfter, 200, 'Ο πίνακας φορτώνει μετά τη διαγραφή χωρίς νέα σύνδεση');
+    notIncludes(boardAfter.text, 'Η πρόταση δοκιμής διαγραφής', 'Η διαγραμμένη πρόταση εξαφανίστηκε από τον πίνακα');
+    includes(boardAfter.text, 'Η δεύτερη πρόταση του Α', 'Οι υπόλοιπες προτάσεις παραμένουν στον πίνακα');
+
+    writeDb.prepare("UPDATE users SET role = 'manager', is_admin = 1 WHERE id = ?").run(aId);
+    const managerBoard = await studentA.request('/protaseis');
+    notIncludes(cardHtml(managerBoard.text, bSuggestionId), 'data-can-delete', 'Ο διαχειριστής δεν βλέπει διαγραφή σε πρόταση άλλου χρήστη');
+    notIncludes(cardHtml(managerBoard.text, bSuggestionId), 'Διαγραφή πρότασης', 'Ο διαχειριστής δεν βλέπει επιλογή διαγραφής σε πρόταση άλλου χρήστη');
+    includes(cardHtml(managerBoard.text, a2Id), 'data-can-delete="1"', 'Ο διαχειριστής βλέπει τη δική του πρόταση κλικαμπλ προς διαγραφή');
+    const managerTries = await jsonPost(studentA, '/protaseis/' + bSuggestionId + '/diagrafi');
+    assertStatus(managerTries, 403, 'Ο διαχειριστής δεν μπορεί να διαγράψει πρόταση άλλου χρήστη');
+    ok(query(dataDir, 'SELECT id FROM suggestions WHERE id = ?', [bSuggestionId]).length === 1, 'Η πρόταση του μαθητή Β παραμένει μετά την απόπειρα διαχειριστή');
+
+    const setupOwner = spawnSync(process.execPath, [
+      '--disable-warning=ExperimentalWarning',
+      'scripts/setup-owner.js',
+      'Linda W'
+    ], {
+      cwd: ROOT,
+      env: {
+        ...process.env,
+        DATA_DIR: dataDir,
+        UPLOAD_DIR: uploadDir,
+        OWNER_PASSWORD
+      },
+      encoding: 'utf8'
+    });
+    ok(setupOwner.status === 0, 'Ο λογαριασμός ιδιοκτήτη «Linda W» δημιουργείται στο σενάριο διαγραφής');
+    const ownerRows = query(dataDir, "SELECT id, role FROM users WHERE username = 'Linda W'");
+    ok(ownerRows.length === 1 && ownerRows[0].role === 'owner', 'Ο λογαριασμός ιδιοκτήτη έχει τον ρόλο owner');
+    const owner = new Client(base);
+    const ownerLogin = await owner.request('/syndesi', { form: { username: 'Linda W', password: OWNER_PASSWORD } });
+    assertStatus(ownerLogin, 302, 'Ο ιδιοκτήτης συνδέεται στο σενάριο διαγραφής');
+    const ownerBoard = await owner.request('/protaseis');
+    for (const id of [bSuggestionId, legacyId, a2Id]) {
+      includes(cardHtml(ownerBoard.text, id), 'data-can-delete="1"', 'Ο ιδιοκτήτης βλέπει κάθε πρόταση κλικαμπλ προς διαγραφή (' + id + ')');
+      includes(cardHtml(ownerBoard.text, id), 'Διαγραφή πρότασης', 'Ο ιδιοκτήτης βλέπει την επιλογή διαγραφής σε κάθε πρόταση (' + id + ')');
+    }
+    includes(ownerBoard.text, 'Είσαι σίγουρος/η ότι θέλεις να διαγράψεις αυτή την πρόταση;', 'Ο ιδιοκτήτης βλέπει το παράθυρο επιβεβαίωσης διαγραφής');
+    const ownerDeletesLegacy = await jsonPost(owner, '/protaseis/' + legacyId + '/diagrafi');
+    assertStatus(ownerDeletesLegacy, 200, 'Ο ιδιοκτήτης διαγράφει πρόταση χωρίς συντάκτη');
+    ok(query(dataDir, 'SELECT id FROM suggestions WHERE id = ?', [legacyId]).length === 0, 'Η παλιά πρόταση διαγράφηκε από τον ιδιοκτήτη');
+    const ownerDeletesB = await jsonPost(owner, '/protaseis/' + bSuggestionId + '/diagrafi');
+    assertStatus(ownerDeletesB, 200, 'Ο ιδιοκτήτης διαγράφει πρόταση άλλου χρήστη');
+    ok(query(dataDir, 'SELECT id FROM suggestions WHERE id = ?', [bSuggestionId]).length === 0, 'Η πρόταση του μαθητή Β διαγράφηκε από τον ιδιοκτήτη');
+    ok(query(dataDir, 'SELECT suggestion_id FROM suggestion_likes WHERE suggestion_id = ?', [bSuggestionId]).length === 0, 'Τα «μου αρέσει» της πρότασης του Β αφαιρέθηκαν');
+
+    const managerDeletesOwn = await jsonPost(studentA, '/protaseis/' + a2Id + '/diagrafi');
+    assertStatus(managerDeletesOwn, 200, 'Ο διαχειριστής διαγράφει τη δική του πρόταση');
+    ok(query(dataDir, 'SELECT id FROM suggestions WHERE id = ?', [a2Id]).length === 0, 'Η πρόταση του διαχειριστή διαγράφηκε');
+    ok(query(dataDir, 'SELECT suggestion_id FROM suggestion_likes WHERE suggestion_id = ?', [a2Id]).length === 0, 'Τα «μου αρέσει» της πρότασης του διαχειριστή αφαιρέθηκαν');
+    ok(query(dataDir, 'SELECT id FROM suggestions').length === 0, 'Δεν απομένει καμία πρόταση στο σενάριο');
+
+    ok(query(dataDir, 'SELECT id FROM events').length === 1, 'Οι εκδηλώσεις δεν επηρεάστηκαν από τις διαγραφές προτάσεων');
+    ok(query(dataDir, 'SELECT id FROM polls').length === 1, 'Οι ψηφοφορίες δεν επηρεάστηκαν από τις διαγραφές προτάσεων');
+    ok(query(dataDir, 'SELECT id FROM choices').length === 2, 'Οι επιλογές ψηφοφορίας δεν επηρεάστηκαν');
+    ok(query(dataDir, 'SELECT id FROM votes').length === 1, 'Οι ψήφοι δεν επηρεάστηκαν');
+    ok(query(dataDir, 'SELECT id FROM users').length === 3, 'Οι λογαριασμοί δεν επηρεάστηκαν');
+    ok(query(dataDir, 'SELECT token FROM sessions').length >= 2, 'Οι συνεδρίες παραμένουν ενεργές μετά τις διαγραφές');
+
+    const appJs = fs.readFileSync(path.join(ROOT, 'public/app.js'), 'utf8');
+    includes(appJs, 'data-suggestion-delete-option', 'Το JS διαχειρίζεται την επιλογή διαγραφής με κλικ');
+    includes(appJs, '/diagrafi', 'Το JS στέλνει το αίτημα διαγραφής στον διακομιστή');
+    includes(appJs, "removeChild(card)", 'Το JS αφαιρεί αμέσως τη διαγραμμένη πρόταση από τη λίστα');
+  } finally {
+    writeDb.close();
+    await stopServer(server);
+  }
+}
+
 async function main() {
   const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'pes-to-test-'));
   const dataDir = path.join(tempRoot, 'data');
@@ -1002,6 +1188,7 @@ async function main() {
     await stopServer(server);
     server = null;
     await migrationScenario(tempRoot);
+    await deleteSuggestionScenario(tempRoot);
 
     console.log('\n' + passed + ' έλεγχοι πέρασαν με επιτυχία.\n');
   } finally {

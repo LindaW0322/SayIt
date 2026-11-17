@@ -277,27 +277,42 @@ function suggestSuccess({ user }) {
   });
 }
 
-function suggestionBoardPage({ user, suggestions, pager }) {
+function suggestionBoardPage({ user, suggestions, pager, flash }) {
+  const anyDeletable = !!user && suggestions.some(s => user.is_owner || Number(s.user_id) === Number(user.id));
   const list = suggestions.length
     ? suggestions.map(s => {
       const count = Number(s.like_count) || 0;
       const liked = Number(s.liked) === 1;
+      const canDelete = !!user && (user.is_owner || Number(s.user_id) === Number(user.id));
       const likeLabel = (liked ? 'Αφαίρεση της προτίμησης' : 'Μου αρέσει') +
         ' — ' + count + (count === 1 ? ' προτίμηση' : ' προτιμήσεις');
+      const cardAttrs = canDelete
+        ? ` data-detail-url="/protaseis/${Number(s.id)}" data-suggestion-id="${Number(s.id)}" data-can-delete="1" tabindex="0" role="button" aria-haspopup="menu" aria-label="Ενέργειες πρότασης: ${e(s.title)}"`
+        : ` data-detail-url="/protaseis/${Number(s.id)}" tabindex="0" role="group" aria-label="Πρόταση: ${e(s.title)}. Διπλό κλικ για λεπτομέρειες."`;
+      const deleteMenu = canDelete
+        ? `
+        <div class="suggestion-delete-actions" hidden role="menu" data-suggestion-menu aria-label="Ενέργειες πρότασης">
+          <button type="button" role="menuitem" class="btn btn-danger btn-sm suggestion-delete-option"
+                  data-suggestion-delete-option data-suggestion-id="${Number(s.id)}">${icon('trash')} Διαγραφή πρότασης</button>
+        </div>`
+        : '';
       return `
-      <article class="card suggestion-card public-suggestion" id="protasi-${Number(s.id)}">
+      <article class="card suggestion-card public-suggestion" id="protasi-${Number(s.id)}"${cardAttrs}>
         <div class="suggestion-head">
           <span class="badge badge-cat">${e(s.category)}</span>
           <span class="suggestion-date">${e(formatDateTime(s.created_at))}</span>
         </div>
         <h2 class="suggestion-title">${e(s.title)}</h2>
         <p class="suggestion-desc">${e(s.description).replaceAll('\n', '<br>')}</p>
-        <form method="post" action="/protaseis/${Number(s.id)}/mou-aresei" class="like-form">
-          <button type="submit" class="like-button ${liked ? 'is-liked' : ''}"
-                  aria-label="${e(likeLabel)}" aria-pressed="${liked ? 'true' : 'false'}">
-            ${heartIcon(liked)}
-          </button>
-        </form>
+        ${deleteMenu}
+        <div class="suggestion-actions">
+          <form method="post" action="/protaseis/${Number(s.id)}/mou-aresei" class="like-form">
+            <button type="submit" class="like-button ${liked ? 'is-liked' : ''}"
+                    aria-label="${e(likeLabel)}" aria-pressed="${liked ? 'true' : 'false'}">
+              ${heartIcon(liked)}
+            </button>
+          </form>
+        </div>
       </article>`;
     }).join('')
     : `
@@ -305,14 +320,74 @@ function suggestionBoardPage({ user, suggestions, pager }) {
       <div class="big-icon">${icon('heart')}</div>
       <p>Δεν υπάρχουν ακόμα δημόσιες προτάσεις.</p>
     </div>`;
+  const confirmDialog = anyDeletable
+    ? `
+    <div class="confirm-overlay" id="suggestion-confirm-dialog" hidden role="dialog" aria-modal="true"
+         aria-labelledby="suggestion-confirm-title" aria-describedby="suggestion-confirm-message">
+      <div class="confirm-dialog-card" role="document">
+        <h2 class="confirm-dialog-title" id="suggestion-confirm-title">Διαγραφή πρότασης</h2>
+        <p class="confirm-dialog-message" id="suggestion-confirm-message">Είσαι σίγουρος/η ότι θέλεις να διαγράψεις αυτή την πρόταση;</p>
+        <div class="confirm-dialog-actions">
+          <button type="button" class="btn btn-secondary" data-suggestion-confirm-cancel>Ακύρωση</button>
+          <button type="button" class="btn btn-danger" data-suggestion-confirm-delete>${icon('trash')} Διαγραφή</button>
+        </div>
+      </div>
+    </div>`
+    : '';
   return layout({
     user,
     title: 'Δείτε τις προτάσεις',
     content: `
     <h1 class="page-title">Δείτε τις προτάσεις</h1>
     <p class="lead">Οι δημόσιες προτάσεις των μαθητών. Πάτησε την καρδιά για να δείξεις τη στήριξή σου.</p>
+    ${flashHtml(flash)}
     <div class="suggestion-list">${list}</div>
-    ${pagerHtml(pager, '/protaseis')}`
+    ${pagerHtml(pager, '/protaseis')}
+    ${confirmDialog}`
+  });
+}
+
+function suggestionDetailPage({ user, suggestion, canDelete }) {
+  const likeCount = Number(suggestion.like_count) || 0;
+  const likeText = likeCount === 1 ? '1 προτίμηση' : likeCount + ' προτιμήσεις';
+  const deleteArea = canDelete
+    ? `
+    <div class="card suggestion-detail-actions">
+      <h2 class="section-title">Ενέργειες πρότασης</h2>
+      <p class="form-note">${icon('trash')} Η διαγραφή είναι μόνιμη. Θα αφαιρεθούν και όλες οι προτιμήσεις της πρότασης.</p>
+      <button type="button" class="btn btn-danger" id="suggestion-detail-delete"
+              data-suggestion-id="${Number(suggestion.id)}">${icon('trash')} Διαγραφή</button>
+    </div>
+    <div class="confirm-overlay" id="suggestion-detail-confirm-dialog" hidden role="dialog" aria-modal="true"
+         aria-labelledby="suggestion-detail-confirm-title" aria-describedby="suggestion-detail-confirm-message">
+      <div class="confirm-dialog-card" role="document">
+        <h2 class="confirm-dialog-title" id="suggestion-detail-confirm-title">Διαγραφή πρότασης</h2>
+        <p class="confirm-dialog-message" id="suggestion-detail-confirm-message">Είσαι σίγουρος/η ότι θέλεις να διαγράψεις αυτή την πρόταση; Θα αφαιρεθούν και όλες οι προτιμήσεις της.</p>
+        <div class="confirm-dialog-actions">
+          <button type="button" class="btn btn-secondary" data-suggestion-detail-confirm-cancel>Ακύρωση</button>
+          <button type="button" class="btn btn-danger" data-suggestion-detail-confirm-delete>${icon('trash')} Διαγραφή</button>
+        </div>
+      </div>
+    </div>`
+    : '';
+  return layout({
+    user,
+    title: 'Λεπτομέρειες πρότασης',
+    content: `
+    <h1 class="page-title">Λεπτομέρειες πρότασης</h1>
+    <div class="toolbar">
+      <a class="btn btn-secondary" href="/protaseis">← Επιστροφή στις προτάσεις</a>
+    </div>
+    <article class="card suggestion-detail-card">
+      <div class="suggestion-head">
+        <span class="badge badge-cat">${e(suggestion.category)}</span>
+        <span class="suggestion-date">${e(formatDateTime(suggestion.created_at))}</span>
+      </div>
+      <h2 class="suggestion-title">${e(suggestion.title)}</h2>
+      <p class="suggestion-desc">${e(suggestion.description).replaceAll('\n', '<br>')}</p>
+      <p class="suggestion-detail-meta">${heartIcon(false)} ${likeText}</p>
+    </article>
+    ${deleteArea}`
   });
 }
 
@@ -1089,6 +1164,7 @@ module.exports = {
   suggestPage,
   suggestSuccess,
   suggestionBoardPage,
+  suggestionDetailPage,
   eventsPage,
   voteListPage,
   pollVotePage,
